@@ -3,11 +3,18 @@
 # Generates the default exhibitor config and launches exhibitor
 
 MISSING_VAR_MESSAGE="must be set"
-DEFAULT_AWS_REGION="us-west-2"
-: ${S3_BUCKET:?$MISSING_VAR_MESSAGE}
-: ${S3_PREFIX:?$MISSING_VAR_MESSAGE}
-: ${HOSTNAME:?$MISSING_VAR_MESSAGE}
-: ${AWS_REGION:=$DEFAULT_AWS_REGION}
+: ${CONFIG_TYPE:?$MISSING_VAR_MESSAGE}
+
+if [ "$CONFIG_TYPE" == "file" ]; then
+  : ${HOSTNAME:?$MISSING_VAR_MESSAGE}
+else
+  DEFAULT_AWS_REGION="us-east-1"
+  : ${S3_BUCKET:?$MISSING_VAR_MESSAGE}
+  : ${S3_PREFIX:?$MISSING_VAR_MESSAGE}
+  : ${HOSTNAME:?$MISSING_VAR_MESSAGE}
+  : ${AWS_REGION:=$DEFAULT_AWS_REGION}
+  BACKUP_EXTRA="throttle\=&bucket-name\=${S3_BUCKET}&key-prefix\=${S3_PREFIX}&max-retries\=4&retry-sleep-ms\=30000"
+fi
 
 cat <<- EOF > /opt/exhibitor/defaults.conf
 	zookeeper-data-directory=/opt/zookeeper/snapshots
@@ -21,7 +28,7 @@ cat <<- EOF > /opt/exhibitor/defaults.conf
 	cleanup-max-files=20
 	backup-max-store-ms=21600000
 	connect-port=2888
-	backup-extra=throttle\=&bucket-name\=${S3_BUCKET}&key-prefix\=${S3_PREFIX}&max-retries\=4&retry-sleep-ms\=30000
+	backup-extra=${BACKUP_EXTRA}
 	observer-threshold=0
 	election-port=3888
 	zoo-cfg-extra=tickTime\=2000&initLimit\=10&syncLimit\=5&quorumListenOnAllIPs\=true
@@ -52,9 +59,14 @@ exec 2>&1
 # 	--port 8181 --defaultconfig /opt/exhibitor/defaults.conf \
 # 	--configtype s3 --s3config thefactory-exhibitor:${CLUSTER_ID} \
 # 	--s3credentials /opt/exhibitor/credentials.properties \
-# 	--s3region us-west-2 --s3backup true
+# 	--s3region us-east-1 --s3backup true
 
-if [[ -n ${AWS_ACCESS_KEY_ID} ]]; then
+if [ "$CONFIG_TYPE" == "file" ]; then
+  java -jar /opt/exhibitor/exhibitor.jar \
+    --port 8181 --defaultconfig /opt/exhibitor/defaults.conf \
+    --configtype file --hostname ${HOSTNAME} \
+    ${SECURITY}
+elif [[ -n ${AWS_ACCESS_KEY_ID} ]]; then
   java -jar /opt/exhibitor/exhibitor.jar \
     --port 8181 --defaultconfig /opt/exhibitor/defaults.conf \
     --configtype s3 --s3config ${S3_BUCKET}:${S3_PREFIX} \
